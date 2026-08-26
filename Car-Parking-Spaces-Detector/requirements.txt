@@ -1,0 +1,22 @@
+# --- Parking Space Detector Dependencies ---
+
+# YOLOv8 framework for deep learning and object detection
+ultralytics>=8.0.0
+
+# Advanced computer vision tools and bounding box manipulation
+supervision>=0.20.0
+
+# Image processing, video I/O, and feature matching (ORB/Homography)
+opencv-python>=4.8.0
+
+# Core library for matrix operations and array data structures
+numpy>=1.26.0
+
+# Data parsing and configuration file handling
+PyYAML>=6.0
+
+# Geometric operations, spatial analysis, and polygon intersections
+shapely>=2.0.0
+
+# Sliced Aided Hyper Inference for detecting small/distant objects
+sahi>=0.11.0
