@@ -6,7 +6,7 @@ import os
 
 # --- PATH CONFIGURATION ---
 # Define the base directory of the project using the user's home folder
-BASE_DIR = os.path.join(os.path.expanduser('~'), 'PycharmProjects', 'ParkingSpaceDetector')
+BASE_DIR = os.path.join(os.path.expanduser('~'), 'ParkingSpaceDetector')
 
 # Path to the default input video file
 DEFAULT_VIDEO_PATH = os.path.join(BASE_DIR, 'data', 'parking_trimmed.mp4')
