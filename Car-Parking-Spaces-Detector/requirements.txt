@@ -1,6 +1,6 @@
 # --- Parking Space Detector Dependencies ---
 
-# YOLOv8 framework for deep learning and object detection
+# YOLO26x framework for deep learning and object detection
 ultralytics>=8.0.0
 
 # Advanced computer vision tools and bounding box manipulation
