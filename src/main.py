@@ -1,3 +1,12 @@
+"""
+This script implements a robust video processing pipeline for parking space occupancy detection. 
+It leverages a YOLO model via SAHI (Slicing Aided Hyper Inference) for high-accuracy vehicle 
+detection, and uses OpenCV's ORB (Oriented FAST and Rotated BRIEF) feature matching and homography to stabilize predefined 
+parking space polygons against camera movement. By evaluating the intersection between the 
+detected cars and the stabilized zones, it determines parking availability frame-by-frame 
+and exports an annotated output video.
+"""
+
 
 import cv2
 import logging
