@@ -1,95 +1,103 @@
 """
-This script implements a robust video processing pipeline for parking space occupancy detection. 
-It leverages a YOLO model via SAHI (Slicing Aided Hyper Inference) for high-accuracy vehicle 
-detection, and uses OpenCV's ORB (Oriented FAST and Rotated BRIEF) feature matching and homography to stabilize predefined 
-parking space polygons against camera movement. By evaluating the intersection between the 
-detected cars and the stabilized zones, it determines parking availability frame-by-frame 
-and exports an annotated output video.
+Main execution pipeline for the Parking Space Detector.
+Utilizes SAHI for sliced YOLO inference, ORB-based homography for camera
+stabilization, and Shapely polygon intersections for parking spot occupancy tracking.
 """
-
-
 import cv2
 import logging
 from sahi import AutoDetectionModel
 from sahi.predict import get_sliced_prediction
 
-# Import local modules from the same directory
-import config
-import utils
+# Direct imports from local modules
+from config import (
+    DEFAULT_VIDEO_PATH,
+    OUTPUT_VIDEO_DIR,
+    LABEL_FILE,
+    MODEL_NAME,
+    VEHICLE_CLASSES
+)
+from utils import (
+    load_video,
+    load_labels,
+    get_homography,
+    get_transformed_polygons,
+    evaluate_and_draw_scene
+)
 
-# Initialize logging for the main execution script
+# Initialize logging configuration
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
 def main():
     """
-    Main execution pipeline for parking space occupancy detection.
-    Initializes the object detection model, processes the video frame by frame,
-    applies homography for stabilization, and evaluates parking space occupancy.
+    Executes the video processing pipeline:
+    1. Loads the detection model and video stream.
+    2. Extracts base annotation polygons.
+    3. Stabilizes each frame using ORB feature matching and homography.
+    4. Runs sliced prediction on moving frames and evaluates spatial occupancy.
+    5. Writes the annotated frames to the output file.
     """
     logger.info("Loading YOLO model via SAHI...")
 
-    # Initialize variables to None to ensure safe cleanup in the 'finally' block
     cap = None
     out = None
 
     try:
-        # Load the detection model using SAHI
-        # Ensure 'yolo26x.pt' exists in your environment
+        # Load the detection model using SAHI with parameters from config
         detection_model = AutoDetectionModel.from_pretrained(
             model_type="ultralytics",
-            model_path="yolo26x.pt",
+            model_path=MODEL_NAME,
             confidence_threshold=0.25,
-            device="cuda:0",  # Change to "cpu" if no GPU is available
+            device="cuda:0",  # Change to "cpu" if running without GPU support
         )
 
-        # 1. Video I/O Configuration
-        logger.info("Initializing video reading and writing...")
-        cap, out, width, height = utils.load_video(config.DEFAULT_VIDEO_PATH, config.OUTPUT_VIDEO_DIR)
+        # 1. Video I/O setup
+        logger.info("Initializing video stream and writer...")
+        cap, out, width, height = load_video(DEFAULT_VIDEO_PATH, OUTPUT_VIDEO_DIR)
 
-        # 2. Load base labels (parking space polygons)
-        logger.info("Loading base polygons from labels file...")
-        base_polygons = utils.load_labels(config.LABEL_FILE, width, height)
-
+        # 2. Load ground-truth polygons scaled to video dimensions
+        logger.info("Loading base labels from configuration...")
+        base_polygons = load_labels(LABEL_FILE, width, height)
+        
         if not base_polygons:
-            logger.warning("No base polygons loaded. Processing will continue, but no zones will be drawn.")
+            logger.warning("No base polygons were loaded. Occupancy overlay will be skipped.")
 
-        # 3. Initial ORB Configuration for feature matching
+        # 3. Initialize ORB and Matcher for camera motion stabilization
         orb = cv2.ORB_create(nfeatures=2000)
         bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
 
-        # Read the first frame to use as the reference frame for homography
+        # Extract keypoints and descriptors from the initial reference frame
         ret, frame_ref = cap.read()
         if not ret:
-            logger.error("Failed to read the first frame. Exiting process.")
+            logger.error("Failed to read the initial reference frame. Terminating.")
             return
 
         gray_ref = cv2.cvtColor(frame_ref, cv2.COLOR_BGR2GRAY)
         kp_ref, des_ref = orb.detectAndCompute(gray_ref, None)
 
-        logger.info('Processing video with SAHI and Shapely for occupancy detection...')
+        logger.info("Starting frame processing loop...")
 
-        # 4. Main video processing loop
-        frame_count = 0
+        # 4. Process video frame by frame
+        frame_idx = 0
         while cap.isOpened():
             ret, frame_curr = cap.read()
             if not ret:
-                logger.info("End of video stream reached.")
+                logger.info("Reached end of video stream.")
                 break
 
-            frame_count += 1
+            frame_idx += 1
             gray_curr = cv2.cvtColor(frame_curr, cv2.COLOR_BGR2GRAY)
             kp_curr, des_curr = orb.detectAndCompute(gray_curr, None)
 
-            # Compute homography to stabilize the current frame relative to the reference frame
-            M = utils.get_homography(bf, kp_ref, des_ref, kp_curr, des_curr)
+            # Compute homography relative to reference frame
+            M = get_homography(bf, kp_ref, des_ref, kp_curr, des_curr)
 
             if M is not None:
-                # Get stabilized polygons for the current frame
-                transformed_polygons = utils.get_transformed_polygons(base_polygons, M)
+                # Transform base polygons to match current frame perspective
+                transformed_polygons = get_transformed_polygons(base_polygons, M)
 
-                # Perform sliced inference with SAHI
+                # Run sliced inference for improved small-object resolution
                 result = get_sliced_prediction(
                     frame_curr,
                     detection_model,
@@ -99,29 +107,33 @@ def main():
                     overlap_width_ratio=0.2
                 )
 
-                # Filter predictions to keep only cars (assuming category ID 2 is 'car' in COCO)
+                # Filter detections based on configured vehicle class IDs
                 autos_predictions = [
                     pred for pred in result.object_prediction_list
-                    if pred.category.id == 2
+                    if pred.category.id in VEHICLE_CLASSES
                 ]
 
-                # Evaluate intersections and draw the scene
-                utils.evaluate_and_draw_scene(frame_curr, transformed_polygons, autos_predictions, threshold=0.3)
+                # Evaluate polygon intersections and draw bounding areas
+                evaluate_and_draw_scene(
+                    frame=frame_curr,
+                    transformed_polygons=transformed_polygons,
+                    autos_predictions=autos_predictions,
+                    threshold=0.3
+                )
             else:
-                logger.warning(f"Tracking lost in frame {frame_count} (too few matching points).")
+                logger.warning(f"Tracking lost on frame {frame_idx}: insufficient feature matches.")
 
-            # Write the processed frame to the output video file
+            # Write annotated frame to output video
             out.write(frame_curr)
 
-        logger.info(f"Video successfully processed and saved to: {config.OUTPUT_VIDEO_DIR}")
+        logger.info(f"Processing complete. Output saved to: {OUTPUT_VIDEO_DIR}")
 
     except Exception as e:
-        logger.error(f"An unexpected error occurred during execution: {e}")
+        logger.error(f"Execution error encountered: {e}")
 
     finally:
-        # 5. Resource Cleanup
-        # This block executes regardless of whether the try block succeeds or throws an error
-        logger.info("Releasing resources and cleaning up...")
+        # 5. Clean up OpenCV resources safely
+        logger.info("Releasing video handles and closing windows...")
         if cap is not None:
             cap.release()
         if out is not None:
