@@ -120,7 +120,8 @@ def get_homography(bf, kp_ref, des_ref, kp_curr, des_curr):
         if not matches:
             logger.warning("No matches found between reference and current frame.")
             return None
-
+            
+        # Sort matches by distance
         matches = sorted(matches, key=lambda x: x.distance)
         good_matches = matches[:int(len(matches) * 0.15)]
 
